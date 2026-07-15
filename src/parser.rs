@@ -39,6 +39,7 @@ pub fn parse(s: &str) -> Result<Command, String> {
 
 /*
 A PRETTY IMPORTANT PIECE OF YAPPING
+15.07.2026
 
 So I was walking home from the gym yesterday and I thought about concurrent execution in
 this particular scenario. Basically if I try to build an fully concurrent system
@@ -54,6 +55,33 @@ state (i.e distinct stores).
 About architecture - I think the `parser` function should be a part of an executor, as shall
 the KvStore itself (the isolated existence of it is meaningless at this stage) ->
 it's owned by the executor.
+
+To allow returning data back we might use a struct with Command and oneshot sender so like
+
+```
+struct StoreRequest {
+    tx: oneshot::sender,
+    cmd: Command
+};
+```
+
+and use in the executor:
+```
+fn execute(&mut self, sr: StoreRequest) {
+    match sr.cmd {
+        Command::Set {key, value} => {
+            let result = self.kvstore.set(&key, &value).await;
+            tx.send(res);
+        };
+    };
+}
+something like this?
+
+The executor contains the receiver for the mpsc channel (the sender is inside the tcp conn handler),
+every request send and parsed returns a oneshot pair.
+
+is this actor model? need research
+```
 */
 
 // notes:
