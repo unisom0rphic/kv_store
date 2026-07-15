@@ -1,39 +1,64 @@
-use std::{error::Error, sync::Arc};
+use anyhow::Result;
+use tokio::sync::mpsc;
 
+use crate::conn::{Command, StoreRequest};
 use crate::storage::KvStore;
 
-#[derive(Debug, PartialEq)]
-pub enum Command {
-    Set { key: String, value: String },
-    Get { key: String },
-    Delete { key: String },
+pub struct Executor {
+    storage: KvStore,
+    requests_rx: mpsc::Receiver<StoreRequest>,
 }
 
-pub fn parse(s: &str) -> Result<Command, String> {
-    let mut tokens = s.split(' ');
-    if let Some(command) = tokens.next() {
-        match command {
-            // check for length
-            "SET" => {
-                let key = String::from(tokens.next().ok_or("No key specified")?);
-                let value = String::from(tokens.next().ok_or("No value specified")?);
-
-                Ok(Command::Set { key, value })
-            }
-            "DELETE" => {
-                let key = String::from(tokens.next().ok_or("No key specified")?);
-                Ok(Command::Delete { key })
-            }
-            "GET" => {
-                let key = String::from(tokens.next().ok_or("No key specified")?);
-                Ok(Command::Get { key })
-            }
-            _ => Err(String::from(
-                "Unknown command.\nCurrently implemented: GET, SET, DELETE",
-            )),
+impl Executor {
+    fn new(storage: KvStore, requests_rx: mpsc::Receiver<StoreRequest>) -> Self {
+        Self {
+            storage,
+            requests_rx,
         }
-    } else {
-        Err(String::from("Couldn't find the first token"))
+    }
+
+    pub fn parse(s: &str) -> Result<Command, String> {
+        let mut tokens = s.split(' ');
+        if let Some(command) = tokens.next() {
+            match command {
+                // check for length
+                "SET" => {
+                    let key = String::from(tokens.next().ok_or("No key specified")?);
+                    let value = String::from(tokens.next().ok_or("No value specified")?);
+
+                    Ok(Command::Set { key, value })
+                }
+                "DELETE" => {
+                    let key = String::from(tokens.next().ok_or("No key specified")?);
+                    Ok(Command::Delete { key })
+                }
+                "GET" => {
+                    let key = String::from(tokens.next().ok_or("No key specified")?);
+                    Ok(Command::Get { key })
+                }
+                _ => Err(String::from(
+                    "Unknown command.\nCurrently implemented: GET, SET, DELETE",
+                )),
+            }
+        } else {
+            Err(String::from("Couldn't find the first token"))
+        }
+    }
+
+    // sr is received from the loop listening to the channel (like `run()` method or smth)
+    pub async fn execute(&mut self, sr: StoreRequest) -> Result<()> {
+        let result = match sr.cmd {
+            Command::Set { ref key, ref value } => self.storage.set(key, value).await,
+            Command::Get { ref key } => self.storage.get(key).await,
+            Command::Delete { ref key } => self.storage.delete(key).await,
+        }
+        .unwrap_or(format!("Error executing the command: {:?}", &sr.cmd));
+
+        sr.tx
+            .send(result.bytes().collect())
+            .map_err(|bytes| anyhow::anyhow!("{}", String::from_utf8_lossy(&bytes)))?;
+
+        Ok(())
     }
 }
 
@@ -80,32 +105,18 @@ something like this?
 The executor contains the receiver for the mpsc channel (the sender is inside the tcp conn handler),
 every request send and parsed returns a oneshot pair.
 
-is this actor model? need research
+is this the actor model? need research
 ```
 */
 
-// notes:
-// use `channels` bro like fr
-// so cmd receives a struct which contains key/value and a oneshot sender
-// executor should own the store
-pub async fn execute(store: &mut KvStore, cmd: Command) {
-    match cmd {
-        Command::Set { key, value } => store.set(&key, &value).await,
-        Command::Delete { key } => store.delete(&key).await,
-        Command::Get { key } => {
-            store.get(&key).await;
-        }
-    };
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::parser::{Command, parse};
+    use crate::parser::{Command, Executor};
 
     #[test]
     fn test_parse_happy_path() {
         assert_eq!(
-            parse("SET key value").unwrap(),
+            Executor::parse("SET key value").unwrap(),
             Command::Set {
                 key: String::from("key"),
                 value: String::from("value")
@@ -113,23 +124,23 @@ mod tests {
         );
 
         assert_eq!(
-            parse("DELETE key").unwrap(),
+            Executor::parse("DELETE key").unwrap(),
             Command::Delete {
                 key: String::from("key"),
             }
         );
 
         assert_eq!(
-            parse("GET key").unwrap(),
+            Executor::parse("GET key").unwrap(),
             Command::Get {
                 key: String::from("key"),
             }
         );
 
-        assert!(parse("unknown").is_err());
+        assert!(Executor::parse("unknown").is_err());
 
-        assert!(parse("GET").is_err());
+        assert!(Executor::parse("GET").is_err());
 
-        assert!(parse("").is_err());
+        assert!(Executor::parse("").is_err());
     }
 }

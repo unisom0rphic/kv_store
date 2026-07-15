@@ -25,19 +25,25 @@ impl KvStore {
         None
     }
 
-    pub async fn set(&mut self, key: &str, value: &str) {
+    pub async fn set(&mut self, key: &str, value: &str) -> Option<String> {
         let handle = Arc::clone(&self.table);
 
         if let Ok(mut write_guard) = handle.try_write() {
             write_guard.insert(String::from(key), String::from(value));
+            Some(String::from("success"))
+        } else {
+            None
         }
     }
 
-    pub async fn delete(&mut self, key: &str) {
+    pub async fn delete(&mut self, key: &str) -> Option<String> {
         let handle = Arc::clone(&self.table);
 
         if let Ok(mut write_guard) = handle.try_write() {
             write_guard.remove_entry(key);
+            Some(String::from("success"))
+        } else {
+            None
         }
     }
 }
