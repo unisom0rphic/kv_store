@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Error, Result};
 use tokio::sync::mpsc;
 
 use crate::conn::{Command, StoreRequest};
@@ -60,6 +60,16 @@ impl Executor {
 
         Ok(())
     }
+
+    pub async fn run(&mut self) -> Result<()> {
+        loop {
+            let sr = self.requests_rx.recv().await;
+            match sr {
+                Some(sr) => return self.execute(sr).await,
+                None => anyhow::anyhow!("empty channel"),
+            };
+        }
+    }
 }
 
 /*
@@ -111,7 +121,11 @@ is this the actor model? need research
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{Command, Executor};
+    use tokio::sync::{mpsc, oneshot};
+
+    use crate::{conn::StoreRequest, storage::KvStore};
+
+    use super::{Command, Executor};
 
     #[test]
     fn test_parse_happy_path() {
@@ -142,5 +156,41 @@ mod tests {
         assert!(Executor::parse("GET").is_err());
 
         assert!(Executor::parse("").is_err());
+    }
+
+    // review it later I'm fried rn
+    #[test]
+    fn test_executor_happy_path() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let handle = rt.handle();
+
+        let (tx, rx) = mpsc::channel(10);
+        let mut exec = Executor::new(KvStore::new(), rx);
+
+        // might be spwan blocking
+        // or spawn local
+        handle.spawn(async move { exec.run().await });
+
+        let (otx, orx) = oneshot::channel();
+
+        let send_handle = handle.spawn(async move {
+            let _ = tx
+                .send(StoreRequest {
+                    cmd: Command::Set {
+                        key: "basic_key".to_string(),
+                        value: "basic_value".to_string(),
+                    },
+                    tx: otx,
+                })
+                .await;
+        });
+
+        // add timeout to not freeze forever
+        let result = rt.block_on(async move {
+            send_handle.await.unwrap();
+            orx.await.unwrap()
+        });
+
+        assert_eq!(result, b"success");
     }
 }
