@@ -61,12 +61,12 @@ impl Executor {
         Ok(())
     }
 
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self) {
         loop {
             let sr = self.requests_rx.recv().await;
-            match sr {
-                Some(sr) => return self.execute(sr).await,
-                None => anyhow::anyhow!("empty channel"),
+            let _ = match sr {
+                Some(sr) => self.execute(sr).await,
+                None => panic!("PANIC can't read channel"),
             };
         }
     }
@@ -161,43 +161,29 @@ mod tests {
 
     /// Ensure the Executor can read mpsc::channel and execute the command in
     /// a 2 second window
-    #[test]
-    fn test_executor_happy_path() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let handle = rt.handle();
-
+    #[tokio::test]
+    async fn test_executor_happy_path() {
         let (tx, rx) = mpsc::channel(10);
         let mut exec = Executor::new(KvStore::new(), rx);
 
-        // might be spwan blocking
-        // or spawn local
-        // or maybe it won't execute parallel requests I don't really get it
-        handle.spawn(async move { exec.run().await });
+        tokio::spawn(async move {
+            let _ = exec.run().await;
+        });
 
         let (otx, orx) = oneshot::channel();
 
-        let send_handle = handle.spawn(async move {
-            let _ = tx
-                .send(StoreRequest {
-                    cmd: Command::Set {
-                        key: "basic_key".to_string(),
-                        value: "basic_value".to_string(),
-                    },
-                    tx: otx,
-                })
-                .await;
-        });
-
-        let duration = Duration::from_secs(2);
-
-        let result = rt
-            .block_on(async {
-                timeout(duration, async {
-                    send_handle.await.unwrap();
-                    orx.await.unwrap()
-                })
-                .await
+        let _ = tx
+            .send(StoreRequest {
+                cmd: Command::Set {
+                    key: "basic_key".to_string(),
+                    value: "basic_value".to_string(),
+                },
+                tx: otx,
             })
+            .await;
+
+        let result = timeout(Duration::from_secs(2), async { orx.await.unwrap() })
+            .await
             .unwrap();
 
         assert_eq!(result, b"success");
