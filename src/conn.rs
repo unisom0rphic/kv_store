@@ -16,6 +16,31 @@ pub struct StoreRequest {
     pub tx: oneshot::Sender<Vec<u8>>,
 }
 
+/*
+The PLAN:
+basically rn we can parse data.
+We need to provide an api for the executor.
+
+the pipeline:
+open a connection
+parse command
+if ok(command) => execute
+else if err(command) => print err
+
+execute:
+create a StoreRequest
+send it to the mpsc channel
+receive data back
+print it
+
+it would be nice to have an interface like:
+let result = ???(cmd);
+without explicity creating channels
+
+- so we need a function to create a mpsc, bind rx to exec and return tx (1)
+- automatic oneshot creation
+*/
+
 pub async fn open_connection() {
     let listener = TcpListener::bind("0.0.0.0:6767").await.unwrap();
     println!("Server listening on 0.0.0.0:6767");
