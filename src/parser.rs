@@ -1,4 +1,4 @@
-use anyhow::{Error, Result};
+use anyhow::Result;
 use tokio::sync::mpsc;
 
 use crate::conn::{Command, StoreRequest};
@@ -10,7 +10,7 @@ pub struct Executor {
 }
 
 impl Executor {
-    fn new(storage: KvStore, requests_rx: mpsc::Receiver<StoreRequest>) -> Self {
+    pub fn new(storage: KvStore, requests_rx: mpsc::Receiver<StoreRequest>) -> Self {
         Self {
             storage,
             requests_rx,
@@ -87,57 +87,13 @@ impl Executor {
     /// ```
     pub async fn run(&mut self) {
         while let Some(sr) = self.requests_rx.recv().await {
-            let _ = self.execute(sr).await;
+            // handle error
+            self.execute(sr)
+                .await
+                .unwrap_or_else(|_| panic!("Receiving data from {:?} failed", self.requests_rx));
         }
     }
 }
-
-/*
-A PRETTY IMPORTANT PIECE OF YAPPING
-15.07.2026
-
-So I was walking home from the gym yesterday and I thought about concurrent execution in
-this particular scenario. Basically if I try to build an fully concurrent system
-(multiple threads modifying the same store simultaneously) I will definitely fail.
-
-My idea is to have the executor tied to a *single* KvStore and process code
-sequentially, so if TCP connections A and B work with KvStore K at the same time and
-send a modifying request at the same time, it is attached to the same executor and
-executes on a single thread. It's slow but at least it works. Multiple executors can
-be distributed between the thread pool as long as they don't have access to the shared
-state (i.e distinct stores).
-
-About architecture - I think the `parser` function should be a part of an executor, as shall
-the KvStore itself (the isolated existence of it is meaningless at this stage) ->
-it's owned by the executor.
-
-To allow returning data back we might use a struct with Command and oneshot sender so like
-
-```
-struct StoreRequest {
-    tx: oneshot::sender,
-    cmd: Command
-};
-```
-
-and use in the executor:
-```
-fn execute(&mut self, sr: StoreRequest) {
-    match sr.cmd {
-        Command::Set {key, value} => {
-            let result = self.kvstore.set(&key, &value).await;
-            tx.send(res);
-        };
-    };
-}
-something like this?
-
-The executor contains the receiver for the mpsc channel (the sender is inside the tcp conn handler),
-every request send and parsed returns a oneshot pair.
-
-is this the actor model? need research
-```
-*/
 
 #[cfg(test)]
 mod tests {
@@ -181,24 +137,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_executor_happy_path() {
-        let (tx, rx) = mpsc::channel(10);
+        let (tx, rx) = mpsc::channel(1);
         let mut exec = Executor::new(KvStore::new(), rx);
 
-        tokio::spawn(async move {
-            let _ = exec.run().await;
+        let handle = tokio::spawn(async move {
+            exec.run().await;
         });
 
         let (otx, orx) = oneshot::channel();
 
-        let _ = tx
-            .send(StoreRequest {
-                cmd: Command::Set {
-                    key: "basic_key".to_string(),
-                    value: "basic_value".to_string(),
-                },
-                tx: otx,
-            })
-            .await;
+        tx.send(StoreRequest {
+            cmd: Command::Set {
+                key: "basic_key".to_string(),
+                value: "basic_value".to_string(),
+            },
+            tx: otx,
+        })
+        .await
+        .expect("Failed to send data: channel closed");
 
         // 2 sec timeout
         let result = timeout(Duration::from_secs(2), async { orx.await.unwrap() })
@@ -206,5 +162,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, b"success");
+
+        drop(tx);
+        handle.await.expect("executor thread panicked");
     }
 }
