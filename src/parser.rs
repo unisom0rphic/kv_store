@@ -62,12 +62,8 @@ impl Executor {
     }
 
     pub async fn run(&mut self) {
-        loop {
-            let sr = self.requests_rx.recv().await;
-            let _ = match sr {
-                Some(sr) => self.execute(sr).await,
-                None => panic!("PANIC can't read channel"),
-            };
+        while let Some(sr) = self.requests_rx.recv().await {
+            let _ = self.execute(sr).await;
         }
     }
 }
