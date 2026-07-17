@@ -122,6 +122,7 @@ is this the actor model? need research
 #[cfg(test)]
 mod tests {
     use tokio::sync::{mpsc, oneshot};
+    use tokio::time::{Duration, timeout};
 
     use crate::{conn::StoreRequest, storage::KvStore};
 
@@ -158,7 +159,8 @@ mod tests {
         assert!(Executor::parse("").is_err());
     }
 
-    // review it later I'm fried rn
+    /// Ensure the Executor can read mpsc::channel and execute the command in
+    /// a 2 second window
     #[test]
     fn test_executor_happy_path() {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -169,6 +171,7 @@ mod tests {
 
         // might be spwan blocking
         // or spawn local
+        // or maybe it won't execute parallel requests I don't really get it
         handle.spawn(async move { exec.run().await });
 
         let (otx, orx) = oneshot::channel();
@@ -185,11 +188,17 @@ mod tests {
                 .await;
         });
 
-        // add timeout to not freeze forever
-        let result = rt.block_on(async move {
-            send_handle.await.unwrap();
-            orx.await.unwrap()
-        });
+        let duration = Duration::from_secs(2);
+
+        let result = rt
+            .block_on(async {
+                timeout(duration, async {
+                    send_handle.await.unwrap();
+                    orx.await.unwrap()
+                })
+                .await
+            })
+            .unwrap();
 
         assert_eq!(result, b"success");
     }
