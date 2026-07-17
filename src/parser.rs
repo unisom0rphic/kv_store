@@ -17,6 +17,14 @@ impl Executor {
         }
     }
 
+    /// Parses the provided command to the Command struct
+    /// # Examples
+    /// ```
+    /// let value = Executor::parse("SET key value");
+    /// // -> Ok(Command::Set{"key", "value"})
+    /// let value = Executor::parse("unknown command");
+    /// // -> Err("...details")
+    /// ```
     pub fn parse(s: &str) -> Result<Command, String> {
         let mut tokens = s.split(' ');
         if let Some(command) = tokens.next() {
@@ -45,7 +53,8 @@ impl Executor {
         }
     }
 
-    // sr is received from the loop listening to the channel (like `run()` method or smth)
+    /// Executes the provided request to the underlying KvStore
+    /// and sends the response back
     pub async fn execute(&mut self, sr: StoreRequest) -> Result<()> {
         let result = match sr.cmd {
             Command::Set { ref key, ref value } => self.storage.set(key, value).await,
@@ -61,6 +70,21 @@ impl Executor {
         Ok(())
     }
 
+    /// Signals the executor to start listening the binded channel.
+    /// Usually spawned via tokio::spawn()
+    ///
+    /// # Examples
+    /// ```
+    /// use tokio::sync::mpsc;
+    /// use crate::storage::KvStore;
+    ///
+    /// let (tx, rx) = mpsc::channel(10);
+    /// let exec = Executor::new(KvStore::new(), rx);
+    ///
+    /// tokio::spawn(async move {
+    /// let _ = exec.run().await;
+    /// });
+    /// ```
     pub async fn run(&mut self) {
         while let Some(sr) = self.requests_rx.recv().await {
             let _ = self.execute(sr).await;
@@ -155,8 +179,6 @@ mod tests {
         assert!(Executor::parse("").is_err());
     }
 
-    /// Ensure the Executor can read mpsc::channel and execute the command in
-    /// a 2 second window
     #[tokio::test]
     async fn test_executor_happy_path() {
         let (tx, rx) = mpsc::channel(10);
@@ -178,6 +200,7 @@ mod tests {
             })
             .await;
 
+        // 2 sec timeout
         let result = timeout(Duration::from_secs(2), async { orx.await.unwrap() })
             .await
             .unwrap();
