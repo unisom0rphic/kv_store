@@ -1,5 +1,3 @@
-use std::str::from_utf8_unchecked;
-
 use tokio::sync::mpsc;
 
 use crate::parser::Executor;
@@ -45,13 +43,12 @@ pub async fn open_connection() {
 
                     let parsed_data = Executor::parse(std::str::from_utf8(&buffer[..n]).unwrap());
 
-                    // TODO:
-                    // shouldn't fail if data is invalid
-                    // send the message to the client instead
                     let parsed_cmd = match parsed_data {
                         Ok(cmd) => cmd,
                         Err(e) => {
-                            println!("Error parsing the data: {}", e);
+                            let msg = format!("Error parsing the data: {}", e);
+                            println!("{}", msg);
+                            let _ = stream.write_all(format!("{:?}", msg).as_bytes()).await;
                             return;
                         }
                     };
