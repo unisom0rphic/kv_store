@@ -31,17 +31,21 @@ impl Executor {
             match command {
                 // check for length
                 "SET" => {
-                    let key = String::from(tokens.next().ok_or("No key specified")?);
-                    let value = String::from(tokens.next().ok_or("No value specified")?);
+                    let key = tokens.next().ok_or("No key specified")?.trim().to_string();
+                    let value = tokens
+                        .next()
+                        .ok_or("No value specified")?
+                        .trim()
+                        .to_string();
 
                     Ok(Command::Set { key, value })
                 }
                 "DELETE" => {
-                    let key = String::from(tokens.next().ok_or("No key specified")?);
+                    let key = tokens.next().ok_or("No key specified")?.trim().to_string();
                     Ok(Command::Delete { key })
                 }
                 "GET" => {
-                    let key = String::from(tokens.next().ok_or("No key specified")?);
+                    let key = tokens.next().ok_or("No key specified")?.trim().to_string();
                     Ok(Command::Get { key })
                 }
                 _ => Err(String::from(
