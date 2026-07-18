@@ -14,6 +14,7 @@ impl KvStore {
         }
     }
 
+    // proper handling
     pub fn get(&mut self, key: &str) -> Option<String> {
         self.table.get(key).cloned()
     }
