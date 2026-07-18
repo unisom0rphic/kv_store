@@ -1,5 +1,5 @@
 mod conn;
-mod parser;
+mod executor;
 mod storage;
 
 use conn::open_connection;
