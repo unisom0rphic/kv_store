@@ -4,3 +4,6 @@
 3. check multithreading scenarios (should data race but let's hope it won't)
 4. review parser.parse() - seems not idiomatic enough
 5. http server with `/metrics` ig
+
+! need to provide concurrent access to an executor.
+channels?
