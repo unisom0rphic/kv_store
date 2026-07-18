@@ -59,11 +59,11 @@ impl Executor {
 
     /// Executes the provided request to the underlying KvStore
     /// and sends the response back
-    pub async fn execute(&mut self, sr: StoreRequest) -> Result<()> {
+    pub fn execute(&mut self, sr: StoreRequest) -> Result<()> {
         let result = match sr.cmd {
-            Command::Set { ref key, ref value } => self.storage.set(key, value).await,
-            Command::Get { ref key } => self.storage.get(key).await,
-            Command::Delete { ref key } => self.storage.delete(key).await,
+            Command::Set { ref key, ref value } => self.storage.set(key, value),
+            Command::Get { ref key } => self.storage.get(key),
+            Command::Delete { ref key } => self.storage.delete(key),
         }
         .unwrap_or(format!("Error executing the command: {:?}", &sr.cmd));
 
@@ -93,7 +93,6 @@ impl Executor {
         while let Some(sr) = self.requests_rx.recv().await {
             // handle error
             self.execute(sr)
-                .await
                 .unwrap_or_else(|_| panic!("Receiving data from {:?} failed", self.requests_rx));
         }
     }
