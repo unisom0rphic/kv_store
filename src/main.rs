@@ -6,7 +6,7 @@ use conn::open_connection;
 
 #[tokio::main]
 async fn main() {
-    open_connection().await;
+    open_connection("0.0.0.0:6767").await;
 }
 // use storage::KvStore;
 

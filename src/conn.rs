@@ -3,8 +3,8 @@ use tokio::sync::mpsc;
 
 use crate::executor::Executor;
 use crate::storage::KvStore;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -19,11 +19,13 @@ pub struct StoreRequest {
     pub tx: oneshot::Sender<Vec<u8>>,
 }
 
-pub async fn open_connection() {
-    let listener = TcpListener::bind("0.0.0.0:6767")
-        .await
-        .expect("TCP binding failed");
-    println!("Server listening on 0.0.0.0:6767");
+pub async fn open_connection(addr: &str) -> std::net::SocketAddr {
+    let listener = TcpListener::bind(addr).await.expect("TCP binding failed");
+
+    let local_addr = listener
+        .local_addr()
+        .expect("Failed to get service address");
+    println!("Server listening on {}", local_addr);
 
     const CHANNEL_SIZE: usize = 20;
     let (tx, rx) = mpsc::channel(CHANNEL_SIZE);
@@ -32,21 +34,25 @@ pub async fn open_connection() {
         exec.run().await;
     });
 
-    loop {
-        tokio::select! {
-            res = listener.accept() => {
-                let (socket, addr) = res.expect("Client unable to connect");
-                let tx2 = tx.clone();
-                println!("New client: {:?}", addr);
-                tokio::spawn(async move {
-                    process(socket, tx2).await;
-                });
-            }
-            _ = shutdown_signal_handler() => {
-                println!("Received termination signal: exiting...");
-                break;
-        }}
-    }
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                res = listener.accept() => {
+                    let (socket, addr) = res.expect("Client unable to connect");
+                    let tx2 = tx.clone();
+                    println!("New client: {:?}", addr);
+                    tokio::spawn(async move {
+                        process(socket, tx2).await;
+                    });
+                }
+                _ = shutdown_signal_handler() => {
+                    println!("Received termination signal: exiting...");
+                    break;
+            }}
+        }
+    });
+
+    local_addr
 }
 
 async fn shutdown_signal_handler() {
@@ -71,7 +77,10 @@ async fn shutdown_signal_handler() {
     }
 }
 
-async fn process(mut stream: TcpStream, tx: mpsc::Sender<StoreRequest>) {
+pub async fn process<S>(mut stream: S, tx: mpsc::Sender<StoreRequest>)
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let mut buffer = [0; 1024];
 
     loop {
