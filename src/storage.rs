@@ -30,4 +30,10 @@ impl KvStore {
     }
 }
 
+impl Default for KvStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // tests
