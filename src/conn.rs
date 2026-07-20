@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::net::SocketAddr;
 
+use tokio::signal;
 use tokio::sync::mpsc;
 
 use crate::executor::Executor;
@@ -34,41 +35,71 @@ pub async fn open_connection() {
     });
 
     loop {
-        let tx2 = tx.clone();
-        let (socket, addr) = listener.accept().await.unwrap();
-        println!("New client: {:?}", addr);
-        tokio::spawn(async move {
-            process(socket, tx2).await;
-        });
+        tokio::select! {
+            res = listener.accept() => {
+                let (socket, addr) = res.expect("Client unable to connect");
+                let tx2 = tx.clone();
+                println!("New client: {:?}", addr);
+                tokio::spawn(async move {
+                    process(socket, tx2).await;
+                });
+            }
+            _ = shutdown_signal() => {
+                println!("Received termination signal: exiting...");
+                break;
+        }}
     }
 }
 
-// SIGINT/SIGTERM handling
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c().await.expect("Failed handling Ctrl+C");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed handling SIGTERM")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {}
+    }
+}
+
 pub async fn process(mut stream: TcpStream, tx: mpsc::Sender<StoreRequest>) {
     let mut buffer = [0; 1024];
 
-    // let (tx, rx) = mpsc::channel(CHANNEL_SIZE);
-    // let mut exec = Executor::new(KvStore::new(), rx);
-
-    // match inside?
-
     loop {
         // add timeout here
-        let bytes_read = stream.read(&mut buffer).await.unwrap();
+        let bytes_read = stream
+            .read(&mut buffer)
+            .await
+            .expect("Failed to read the stream");
 
         if bytes_read == 0 {
             println!("Connection closed");
             break;
         }
 
-        let parsed_data = Executor::parse(std::str::from_utf8(&buffer[..bytes_read]).unwrap());
+        let parsed_data =
+            Executor::parse(std::str::from_utf8(&buffer[..bytes_read]).expect("Parsing failed"));
 
         let parsed_cmd = match parsed_data {
             Ok(cmd) => cmd,
             Err(e) => {
                 let msg = format!("Error parsing the data: {}", e);
                 println!("{}", msg);
-                let _ = stream.write_all(format!("{:?}\n", msg).as_bytes()).await;
+                match stream.write_all(format!("{:?}\n", msg).as_bytes()).await {
+                    Ok(_) => println!("Data sent successfully"),
+                    Err(e) => eprintln!("Writing to TCP stream failed: {}", e),
+                };
                 continue;
             }
         };
@@ -95,8 +126,12 @@ pub async fn process(mut stream: TcpStream, tx: mpsc::Sender<StoreRequest>) {
         };
         println!("Received a response: {:?}", server_reply);
 
-        let _ = stream
+        match stream
             .write_all(format!("{:?}\n", server_reply).as_bytes())
-            .await;
+            .await
+        {
+            Ok(_) => println!("Data sent successfully"),
+            Err(e) => eprintln!("Writing to TCP stream failed: {}", e),
+        }
     }
 }

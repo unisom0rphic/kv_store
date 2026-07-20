@@ -29,3 +29,5 @@ impl KvStore {
         Some("success".to_string())
     }
 }
+
+// tests
