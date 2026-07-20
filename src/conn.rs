@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use tokio::signal;
 use tokio::sync::mpsc;
 
@@ -8,7 +6,6 @@ use crate::storage::KvStore;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
-use tokio::time::{Duration, timeout};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Command {
@@ -22,9 +19,10 @@ pub struct StoreRequest {
     pub tx: oneshot::Sender<Vec<u8>>,
 }
 
-// unwraps handling
 pub async fn open_connection() {
-    let listener = TcpListener::bind("0.0.0.0:6767").await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:6767")
+        .await
+        .expect("TCP binding failed");
     println!("Server listening on 0.0.0.0:6767");
 
     const CHANNEL_SIZE: usize = 20;
@@ -44,14 +42,14 @@ pub async fn open_connection() {
                     process(socket, tx2).await;
                 });
             }
-            _ = shutdown_signal() => {
+            _ = shutdown_signal_handler() => {
                 println!("Received termination signal: exiting...");
                 break;
         }}
     }
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal_handler() {
     let ctrl_c = async {
         signal::ctrl_c().await.expect("Failed handling Ctrl+C");
     };
@@ -73,7 +71,7 @@ async fn shutdown_signal() {
     }
 }
 
-pub async fn process(mut stream: TcpStream, tx: mpsc::Sender<StoreRequest>) {
+async fn process(mut stream: TcpStream, tx: mpsc::Sender<StoreRequest>) {
     let mut buffer = [0; 1024];
 
     loop {
