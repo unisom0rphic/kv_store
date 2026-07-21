@@ -34,23 +34,21 @@ pub async fn open_connection(addr: &str) -> std::net::SocketAddr {
         exec.run().await;
     });
 
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                res = listener.accept() => {
-                    let (socket, addr) = res.expect("Client unable to connect");
-                    let tx2 = tx.clone();
-                    println!("New client: {:?}", addr);
-                    tokio::spawn(async move {
-                        process(socket, tx2).await;
-                    });
-                }
-                _ = shutdown_signal_handler() => {
-                    println!("Received termination signal: exiting...");
-                    break;
-            }}
-        }
-    });
+    loop {
+        tokio::select! {
+            res = listener.accept() => {
+                let (socket, addr) = res.expect("Client unable to connect");
+                let tx2 = tx.clone();
+                println!("New client: {:?}", addr);
+                tokio::spawn(async move {
+                    process(socket, tx2).await;
+                });
+            }
+            _ = shutdown_signal_handler() => {
+                println!("Received termination signal: exiting...");
+                break;
+        }}
+    }
 
     local_addr
 }
