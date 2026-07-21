@@ -20,6 +20,7 @@ impl Executor {
     /// Parses the provided command to the Command struct
     /// # Examples
     /// ```
+    /// use kv_store::executor::Executor;
     /// let value = Executor::parse("SET key value");
     /// // -> Ok(Command::Set{"key", "value"})
     /// let value = Executor::parse("unknown command");
@@ -79,14 +80,16 @@ impl Executor {
     ///
     /// # Examples
     /// ```
-    /// use tokio::sync::mpsc;
-    /// use crate::storage::KvStore;
+    /// use tokio::{sync::mpsc, runtime::Runtime};
+    /// use kv_store::storage::KvStore;
+    /// use kv_store::executor::Executor;
     ///
+    /// let rt = Runtime::new().unwrap();
     /// let (tx, rx) = mpsc::channel(10);
-    /// let exec = Executor::new(KvStore::new(), rx);
     ///
-    /// tokio::spawn(async move {
-    /// let _ = exec.run().await;
+    /// rt.spawn(async move {
+    ///     let mut exec = Executor::new(KvStore::new(), rx);
+    ///     exec.run().await;
     /// });
     /// ```
     pub async fn run(&mut self) {
